@@ -1,3 +1,26 @@
+# Note
+**This is a fork, you probably want [mgold/elm-random-pcg](http://package.elm-lang.org/packages/mgold/elm-random-pcg/latest)**
+
+## Reason of existance
+
+I created this version of the Random library to get more bits of randomness for a random password generator.
+For this purpose, I created `Random.Pcg.Extended`, which Implements the extended version of PCG.
+
+In the process of doing this, I made the Random library more general, e.g.
+with `Random.General` it is now possible to use your own RNG as a base generator.
+
+This might be useful for other purposes.
+
+## Plan
+
+At some later time, I might split this package into three parts, e.g. split `Random.General` from `Random.Pcg` and `Random.Pcg.Extended`
+
+
+
+---
+
+Original readme:
+
 # Random.Pcg for Elm
 
 > "The generation of random numbers is too important to be left to chance." – Robert R. Coveyou
