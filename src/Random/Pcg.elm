@@ -15,23 +15,36 @@ runtime.
 This is an implementation of [PCG](http://www.pcg-random.org/) by M. E. O'Neil,
 and is not cryptographically secure.
 
+
 # Getting Started
+
 @docs initialSeed, step, generate
 
+
 # Basic Generators
+
 @docs Generator, bool, int, float, oneIn, sample
 
+
 # Combining Generators
+
 @docs pair, list, maybe, choice, choices, frequency
 
+
 # Custom Generators
+
 @docs constant, map, map2, map3, map4, map5, andMap, andThen, filter
 
+
 # Working With Seeds
+
 @docs Seed, independentSeed, fastForward, toJson, fromJson
 
+
 # Constants
+
 @docs minInt, maxInt
+
 -}
 
 import Bitwise
@@ -40,14 +53,16 @@ import Json.Decode
 import Task
 import Tuple
 import Time
+import Random.General as RNG exposing (Generator(..))
+import Internal.Pcg exposing (Seed(..), config)
 
 
 {-| A `Generator` is like a recipe for generating certain random values. So a
 `Generator Int` describes how to generate integers and a `Generator String`
 describes how to generate strings.
 -}
-type Generator a
-    = Generator (Seed -> ( a, Seed ))
+type alias Generator a =
+    Internal.Pcg.Generator a
 
 
 {-| Generate a random value as specified by a given `Generator`, using a `Seed`
@@ -83,8 +98,8 @@ Our example is best written as:
 
 -}
 step : Generator a -> Seed -> ( a, Seed )
-step (Generator generator) seed =
-    generator seed
+step =
+    RNG.step
 
 
 {-| Create a Command that will generate random values according to the supplied
@@ -101,6 +116,7 @@ You can also think of this function as an alternative to `independentSeed`,
 since they both allow you to use randomness in deeply nested components. In the
 case of this function, it's through sending Commands up the chain that you have
 to set up anyway.
+
 -}
 generate : (a -> msg) -> Generator a -> Cmd msg
 generate toMsg generator =
@@ -116,9 +132,10 @@ Generators, not seeds, are the primary data structure for generating random
 values. Generators are much easier to chain and combine than functions that take
 and return seeds. Creating and managing seeds should happen "high up" in your
 program.
+
 -}
-type Seed
-    = Seed Int Int
+type alias Seed =
+    Internal.Pcg.Seed
 
 
 {-| Initialize the state of the random number generator. The input should be
@@ -148,40 +165,11 @@ through a port. The program will be different every time.
 
 Either way, you should initialize a random seed only once. After that, whenever
 you use a seed, you'll get another one back.
+
 -}
 initialSeed : Int -> Seed
-initialSeed x =
-    let
-        (Seed state1 incr) =
-            -- The magic constant is from Numerical Recipes and is inlined for perf.
-            next (Seed 0 1013904223)
-
-        state2 =
-            state1 + x |> Bitwise.shiftRightZfBy 0
-    in
-        next (Seed state2 incr)
-
-
-next : Seed -> Seed
-next (Seed state0 incr) =
-    -- The magic constant is from Numerical Recipes and is inlined for perf.
-    Seed ((state0 * 1664525) + incr |> Bitwise.shiftRightZfBy 0) incr
-
-
-
--- obtain a psuedorandom 32-bit integer
-
-
-peel : Seed -> Int
-peel (Seed state _) =
-    -- This is the RXS-M-SH version of PCG, see section 6.3.4 of the paper
-    -- and line 184 of pcg_variants.h in the 0.94 C implementation
-    let
-        word =
-            ((state |> Bitwise.shiftRightZfBy ((state |> Bitwise.shiftRightZfBy 28) + 4)) |> Bitwise.xor state) * 277803737
-    in
-        Bitwise.xor (word |> Bitwise.shiftRightZfBy 22) word
-            |> Bitwise.shiftRightZfBy 0
+initialSeed =
+    Internal.Pcg.initialSeed
 
 
 {-| Generate 32-bit integers in a given range, inclusive.
@@ -199,52 +187,8 @@ effect will only be noticable if you are generating tens of thousands of random 
 
 -}
 int : Int -> Int -> Generator Int
-int a b =
-    Generator <|
-        \seed0 ->
-            let
-                ( lo, hi ) =
-                    if a < b then
-                        ( a, b )
-                    else
-                        ( b, a )
-
-                range =
-                    hi - lo + 1
-            in
-                -- fast path for power of 2
-                if (range |> Bitwise.and (range - 1)) == 0 then
-                    ( (peel seed0 |> Bitwise.and (range - 1) |> Bitwise.shiftRightZfBy 0) + lo, next seed0 )
-                else
-                    let
-                        threshhold =
-                            -- essentially: period % max
-                            rem (-range |> Bitwise.shiftRightZfBy 0) range |> Bitwise.shiftRightZfBy 0
-
-                        accountForBias : Seed -> ( Int, Seed )
-                        accountForBias seed =
-                            let
-                                x =
-                                    peel seed
-
-                                seedN =
-                                    next seed
-                            in
-                                if x < threshhold then
-                                    -- in practice this recurses almost never
-                                    accountForBias seedN
-                                else
-                                    ( rem x range + lo, seedN )
-                    in
-                        accountForBias seed0
-
-
-bit53 =
-    9007199254740992.0
-
-
-bit27 =
-    134217728.0
+int =
+    Internal.Pcg.int
 
 
 {-| Generate floats in a given range. The following example is a generator
@@ -252,41 +196,12 @@ that produces numbers between 0 and 1.
 
     probability : Generator Float
     probability =
-      float 0 1
+        float 0 1
+
 -}
 float : Float -> Float -> Generator Float
-float min max =
-    Generator <|
-        \seed0 ->
-            let
-                -- Get 64 bits of randomness
-                seed1 =
-                    next seed0
-
-                n0 =
-                    peel seed0
-
-                n1 =
-                    peel seed1
-
-                -- Get a uniformly distributed IEEE-754 double between 0.0 and 1.0
-                hi =
-                    toFloat (n0 |> Bitwise.and 0x03FFFFFF) * 1.0
-
-                lo =
-                    toFloat (n1 |> Bitwise.and 0x07FFFFFF) * 1.0
-
-                val =
-                    ((hi * bit27) + lo) / bit53
-
-                -- Scale it into our range
-                range =
-                    abs (max - min)
-
-                scaled =
-                    val * range + min
-            in
-                ( scaled, next seed1 )
+float =
+    Internal.Pcg.float
 
 
 {-| Create a generator that produces boolean values with equal probability. This
@@ -294,39 +209,40 @@ example simulates flipping three coins and checking if they're all heads.
 
     threeHeads : Generator Bool
     threeHeads =
-      map3 (\a b c -> a && b && c) bool bool bool
+        map3 (\a b c -> a && b && c) bool bool bool
+
 -}
 bool : Generator Bool
 bool =
-    map ((==) 1) (int 0 1)
+    RNG.bool config
 
 
 {-| The maximum value for randomly generated 32-bit ints.
 -}
 maxInt : Int
 maxInt =
-    2147483647
+    RNG.maxInt
 
 
 {-| The minimum value for randomly generated 32-bit ints.
 -}
 minInt : Int
 minInt =
-    -2147483648
+    RNG.minInt
 
 
 {-| Create a pair of random values. A common use of this might be to generate
 a point in a certain 2D space. Imagine we have a collage that is 400 pixels
 wide and 200 pixels tall.
 
-    randomPoint : Generator (Int,Int)
+    randomPoint : Generator ( Int, Int )
     randomPoint =
         pair (int -200 200) (int -100 100)
 
 -}
 pair : Generator a -> Generator b -> Generator ( a, b )
-pair genA genB =
-    map2 (,) genA genB
+pair =
+    RNG.pair
 
 
 {-| Create a list of random values of a given length.
@@ -339,27 +255,14 @@ pair genA genB =
     intList =
         list 5 (int 0 100)
 
-    intPairs : Generator (List (Int, Int))
+    intPairs : Generator (List ( Int, Int ))
     intPairs =
         list 10 <| pair (int 0 100) (int 0 100)
+
 -}
 list : Int -> Generator a -> Generator (List a)
-list n (Generator generate) =
-    Generator <|
-        \seed ->
-            listHelp [] n generate seed
-
-
-listHelp : List a -> Int -> (Seed -> ( a, Seed )) -> Seed -> ( List a, Seed )
-listHelp list n generate seed =
-    if n < 1 then
-        ( list, seed )
-    else
-        let
-            ( value, newSeed ) =
-                generate seed
-        in
-            listHelp (value :: list) (n - 1) generate newSeed
+list =
+    RNG.list
 
 
 {-| Create a generator that always produces the value provided. This is useful
@@ -367,8 +270,8 @@ when creating complicated chained generators and you need to handle a simple
 case. It's also useful for the base case of recursive generators.
 -}
 constant : a -> Generator a
-constant value =
-    Generator (\seed -> ( value, seed ))
+constant =
+    RNG.constant
 
 
 {-| Transform the values produced by a generator using a stateless function as a
@@ -378,75 +281,52 @@ These examples show how to generate letters based on a basic integer generator.
 
     lowercaseLetter : Generator Char
     lowercaseLetter =
-      map (\n -> Char.fromCode (n + 97)) (int 0 25)
+        map (\n -> Char.fromCode (n + 97)) (int 0 25)
 
     uppercaseLetter : Generator Char
     uppercaseLetter =
-      map (\n -> Char.fromCode (n + 65)) (int 0 25)
+        map (\n -> Char.fromCode (n + 65)) (int 0 25)
 
 -}
 map : (a -> b) -> Generator a -> Generator b
-map func (Generator genA) =
-    Generator <|
-        \seed0 ->
-            let
-                ( a, seed1 ) =
-                    genA seed0
-            in
-                ( func a, seed1 )
+map =
+    RNG.map
 
 
 {-| Combine two generators. This is useful when you have a function with two
 arguments that both need to be given random inputs.
 
-    pointInCircle : Float -> Generator (Float, Float)
+    pointInCircle : Float -> Generator ( Float, Float )
     pointInCircle radius =
-      let
-        r = float 0 radius
-        theta = map degrees (float 0 360)
-      in
-        map2 (curry fromPolar) r theta
+        let
+            r =
+                float 0 radius
+
+            theta =
+                map degrees (float 0 360)
+        in
+            map2 (curry fromPolar) r theta
 
 -}
 map2 : (a -> b -> c) -> Generator a -> Generator b -> Generator c
-map2 func (Generator genA) (Generator genB) =
-    Generator <|
-        \seed0 ->
-            let
-                ( a, seed1 ) =
-                    genA seed0
-
-                ( b, seed2 ) =
-                    genB seed1
-            in
-                ( func a b, seed2 )
+map2 =
+    RNG.map2
 
 
 {-| Combine three generators. This could be used to produce random colors.
 
     rgb : Generator Color.Color
     rgb =
-      map3 Color.rgb (int 0 255) (int 0 255) (int 0 255)
+        map3 Color.rgb (int 0 255) (int 0 255) (int 0 255)
 
     hsl : Generator Color.Color
     hsl =
-      map3 Color.hsl (map degrees (float 0 360)) (float 0 1) (float 0 1)
+        map3 Color.hsl (map degrees (float 0 360)) (float 0 1) (float 0 1)
+
 -}
 map3 : (a -> b -> c -> d) -> Generator a -> Generator b -> Generator c -> Generator d
-map3 func (Generator genA) (Generator genB) (Generator genC) =
-    Generator <|
-        \seed0 ->
-            let
-                ( a, seed1 ) =
-                    genA seed0
-
-                ( b, seed2 ) =
-                    genB seed1
-
-                ( c, seed3 ) =
-                    genC seed2
-            in
-                ( func a b c, seed3 )
+map3 =
+    RNG.map3
 
 
 {-| Combine four generators. This could be used to produce random transparent
@@ -454,67 +334,36 @@ colors.
 
     rgba : Generator Color.Color
     rgba =
-      map4 Color.rgba (int 0 255) (int 0 255) (int 0 255) (float 0 1)
+        map4 Color.rgba (int 0 255) (int 0 255) (int 0 255) (float 0 1)
+
 -}
 map4 : (a -> b -> c -> d -> e) -> Generator a -> Generator b -> Generator c -> Generator d -> Generator e
-map4 func (Generator genA) (Generator genB) (Generator genC) (Generator genD) =
-    Generator <|
-        \seed0 ->
-            let
-                ( a, seed1 ) =
-                    genA seed0
-
-                ( b, seed2 ) =
-                    genB seed1
-
-                ( c, seed3 ) =
-                    genC seed2
-
-                ( d, seed4 ) =
-                    genD seed3
-            in
-                ( func a b c d, seed4 )
+map4 =
+    RNG.map4
 
 
 {-| Combine five generators.
 -}
 map5 : (a -> b -> c -> d -> e -> f) -> Generator a -> Generator b -> Generator c -> Generator d -> Generator e -> Generator f
-map5 func (Generator genA) (Generator genB) (Generator genC) (Generator genD) (Generator genE) =
-    Generator <|
-        \seed0 ->
-            let
-                ( a, seed1 ) =
-                    genA seed0
-
-                ( b, seed2 ) =
-                    genB seed1
-
-                ( c, seed3 ) =
-                    genC seed2
-
-                ( d, seed4 ) =
-                    genD seed3
-
-                ( e, seed5 ) =
-                    genE seed4
-            in
-                ( func a b c d e, seed5 )
+map5 =
+    RNG.map5
 
 
 {-| Map over any number of generators.
 
     randomPerson : Generator Person
     randomPerson =
-       map person genFirstName
-           |> andMap genLastName
-           |> andMap genBirthday
-           |> andMap genPhoneNumber
-           |> andMap genAddress
-           |> andMap genEmail
+        map person genFirstName
+            |> andMap genLastName
+            |> andMap genBirthday
+            |> andMap genPhoneNumber
+            |> andMap genAddress
+            |> andMap genEmail
+
 -}
 andMap : Generator a -> Generator (a -> b) -> Generator b
 andMap =
-    map2 (|>)
+    RNG.andMap
 
 
 {-| Chain random operations by providing a callback that accepts a
@@ -526,127 +375,106 @@ list. Assume we already have `genName : Generator String` defined.
 
     authors : Generator String
     authors =
-      int 1 5 -- number of authors
-      |> andThen (\i -> list i genName)
-      |> map (\ns ->
-        case ns of
-          [n] ->
-            "Author: " ++ n
-          n::ns ->
-            "Authors: " ++ String.join ", " ns ++ " and " ++ n
-          [] ->
-            "This can't happen"
-        )
+        int 1 5
+            -- number of authors
+            |> andThen (\i -> list i genName)
+            |> map
+                (\ns ->
+                    case ns of
+                        [ n ] ->
+                            "Author: " ++ n
+
+                        n :: ns ->
+                            "Authors: " ++ String.join ", " ns ++ " and " ++ n
+
+                        [] ->
+                            "This can't happen"
+                )
 
 If you find yourself calling `constant` in every branch of the callback, you can
 probably use `map` instead.
+
 -}
 andThen : (a -> Generator b) -> Generator a -> Generator b
-andThen callback (Generator generateA) =
-    Generator <|
-        \seed ->
-            let
-                ( result, newSeed ) =
-                    generateA seed
-
-                (Generator generateB) =
-                    callback result
-            in
-                generateB newSeed
+andThen =
+    RNG.andThen
 
 
 {-| Filter a generator so that all generated values satisfy the given predicate.
 
     evens : Generator Int
     evens =
-      filter (\i -> i % 2 == 0) (int minInt maxInt)
+        filter (\i -> i % 2 == 0) (int minInt maxInt)
 
 **Warning:** If the predicate is unsatisfiable, the generator will not terminate, your
 application will hang with an infinite loop, and you will be sad. You should
 also avoid predicates that are merely very difficult to satisfy.
 
     badCrashingGenerator =
-      filter (\_ -> False) anotherGenerator
+        filter (\_ -> False) anotherGenerator
 
     verySlowGenerator =
-      filter (\i -> i % 2000 == 0) (int minInt maxInt)
+        filter (\i -> i % 2000 == 0) (int minInt maxInt)
+
 -}
 filter : (a -> Bool) -> Generator a -> Generator a
-filter predicate generator =
-    Generator (retry generator predicate)
-
-
-retry : Generator a -> (a -> Bool) -> Seed -> ( a, Seed )
-retry generator predicate seed =
-    let
-        ( candidate, newSeed ) =
-            step generator seed
-    in
-        if predicate candidate then
-            ( candidate, newSeed )
-        else
-            retry generator predicate newSeed
+filter =
+    RNG.filter
 
 
 {-| Produce `True` one-in-n times on average.
 
 Do not pass a value less then one to this function.
 
-    flippedHeads = oneIn 2
-    rolled6 = oneIn 6
-    criticalHit = oneIn 20
+    flippedHeads =
+        oneIn 2
+
+    rolled6 =
+        oneIn 6
+
+    criticalHit =
+        oneIn 20
+
 -}
 oneIn : Int -> Generator Bool
-oneIn n =
-    map ((==) 1) (int 1 n)
+oneIn =
+    RNG.oneIn config
 
 
 {-| Given a list, choose an element uniformly at random. `Nothing` is only
 produced if the list is empty.
 
-    type Direction = North | South | East | West
+    type Direction
+        = North
+        | South
+        | East
+        | West
 
     direction : Generator Direction
     direction =
-      sample [North, South, East, West]
-        |> map (Maybe.withDefault North)
+        sample [ North, South, East, West ]
+            |> map (Maybe.withDefault North)
 
 -}
 sample : List a -> Generator (Maybe a)
 sample =
-    let
-        find k ys =
-            case ys of
-                [] ->
-                    Nothing
-
-                z :: zs ->
-                    if k == 0 then
-                        Just z
-                    else
-                        find (k - 1) zs
-    in
-        \xs -> map (\i -> find i xs) (int 0 (List.length xs - 1))
+    RNG.sample config
 
 
 {-| Choose between two values with equal probability.
 
-    type Flip = Heads | Tails
+    type Flip
+        = Heads
+        | Tails
 
     coinFlip : Generator Flip
     coinFlip =
-      choice Heads Tails
+        choice Heads Tails
+
 -}
 choice : a -> a -> Generator a
-choice x y =
-    map
-        (\b ->
-            if b then
-                x
-            else
-                y
-        )
-        bool
+choice =
+    RNG.choice config
 
 
 {-| Create a generator that chooses a generator from a list of generators
@@ -654,10 +482,11 @@ with equal probability.
 
 **Warning:** Do not pass an empty list or your program will crash! In practice
 this is usually not a problem since you pass a list literal.
+
 -}
 choices : List (Generator a) -> Generator a
-choices gens =
-    frequency <| List.map (\g -> ( 1, g )) gens
+choices =
+    RNG.choices config
 
 
 {-| Create a generator that chooses a generator from a list of generators
@@ -666,41 +495,21 @@ chosen is its weight divided by the total weight (which doesn't have to equal 1)
 
 **Warning:** Do not pass an empty list or your program will crash! In practice
 this is usually not a problem since you pass a list literal.
+
 -}
 frequency : List ( Float, Generator a ) -> Generator a
-frequency pairs =
-    let
-        total =
-            List.sum <| List.map (Tuple.first >> abs) pairs
-
-        pick choices n =
-            case choices of
-                ( k, g ) :: rest ->
-                    if n <= k then
-                        g
-                    else
-                        pick rest (n - k)
-
-                _ ->
-                    Debug.crash "Empty list passed to Random.Pcg.frequency!"
-    in
-        float 0 total |> andThen (pick pairs)
+frequency =
+    RNG.frequency config
 
 
 {-| Produce `Just` a value on `True`, and `Nothing` on `False`.
 
 You can use `bool` or `oneIn n` for the first argument.
+
 -}
 maybe : Generator Bool -> Generator a -> Generator (Maybe a)
-maybe genBool genA =
-    genBool
-        |> andThen
-            (\b ->
-                if b then
-                    map Just genA
-                else
-                    constant Nothing
-            )
+maybe =
+    RNG.maybe
 
 
 {-| A generator that produces a seed that is independent of any other seed in
@@ -714,10 +523,12 @@ Component` by mapping over the generators it needs. But if component requires
 randomness after initialization, it should keep its own independent seed, which
 it can get by mapping over *this* generator.
 
-    type alias Component = { seed : Seed }
+    type alias Component =
+        { seed : Seed }
 
     genComponent : Generator Component
-    genComponent = map Component independentSeed
+    genComponent =
+        map Component independentSeed
 
 If you have a lot of components, you can initialize them like so:
 
@@ -728,10 +539,11 @@ If you have a lot of components, you can initialize them like so:
 
 The independent seeds are extremely likely to be distinct for all practical
 purposes. However, it is not proven that there are no pathological cases.
+
 -}
 independentSeed : Generator Seed
 independentSeed =
-    Generator <|
+    RNG.generator <|
         \seed0 ->
             let
                 gen =
@@ -749,7 +561,7 @@ independentSeed =
                 incr =
                     (Bitwise.xor b c) |> Bitwise.or 1 |> Bitwise.shiftRightZfBy 0
             in
-                ( seed1, next <| Seed state incr )
+                ( seed1, Internal.Pcg.next <| Seed state incr )
 
 
 mul32 : Int -> Int -> Int
@@ -779,7 +591,8 @@ lookup table of random numbers. (To be sure no one else uses the seed, use
 
     diceRollTable : Int -> Int
     diceRollTable i =
-      fastForward i mySeed |> step (int 1 6) |> Tuple.first
+        fastForward i mySeed |> step (int 1 6) |> Tuple.first
+
 -}
 fastForward : Int -> Seed -> Seed
 fastForward delta0 (Seed state0 incr) =
@@ -827,6 +640,7 @@ to be sent out a port, stored in local storage, and so on. The seed can be
 recovered using `fromJson`.
 
 Do not inspect or change the resulting JSON value.
+
 -}
 toJson : Seed -> Json.Encode.Value
 toJson (Seed state incr) =
@@ -837,6 +651,7 @@ toJson (Seed state incr) =
 pass an integer to create a seed using `initialSeed`.
 
     Json.Decode.decodeValue fromJson (toJson mySeed) == Ok mySeed
+
 -}
 fromJson : Json.Decode.Decoder Seed
 fromJson =
