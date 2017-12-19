@@ -1,7 +1,7 @@
 {
-    "version": "5.0.2",
-    "summary": "A faster, more featureful, statistically better, & compatible random generator",
-    "repository": "https://github.com/mgold/elm-random-pcg.git",
+    "version": "1.0.0",
+    "summary": "A general random number generator + PCG-Extended",
+    "repository": "https://github.com/Zinggi/elm-random-pcg.git",
     "license": "BSD3",
     "source-directories": [
         "src"
