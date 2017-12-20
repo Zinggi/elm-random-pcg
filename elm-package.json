@@ -1,5 +1,5 @@
 {
-    "version": "2.0.0",
+    "version": "2.0.1",
     "summary": "PCG-Extended, more bits of randomness for you!",
     "repository": "https://github.com/Zinggi/elm-random-pcg-extended.git",
     "license": "BSD3",
