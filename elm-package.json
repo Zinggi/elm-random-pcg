@@ -1,5 +1,5 @@
 {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "summary": "A general random number generator + PCG-Extended",
     "repository": "https://github.com/Zinggi/elm-random-pcg-extended.git",
     "license": "BSD3",
