@@ -7,13 +7,8 @@ I created this version of the Random library to get more bits of randomness for 
 For this purpose, I created `Random.Pcg.Extended`, which Implements the extended version of PCG.
 
 In the process of doing this, I made the Random library more general, e.g.
-with `Random.General` it is now possible to use your own RNG as a base generator.
+with [`Random.General`](http://package.elm-lang.org/packages/Zinggi/elm-random-general/latest) it is now possible to use your own RNG as a base generator.
 
-This might be useful for other purposes.
-
-## Plan
-
-At some later time, I might split this package into three parts, e.g. split `Random.General` from `Random.Pcg` and `Random.Pcg.Extended`
 
 
 
