@@ -47,6 +47,13 @@ import Random.General as RNG exposing (Config(..))
 import Internal.Pcg
 
 
+{- NOTE: this implementation tries to follow the description in the Pcg paper
+   (http://www.pcg-random.org/paper.html).
+   Special attention should be given to section 4.3.4 and 7.1.
+   However, I didn't fully understand how exactely to implement the advance step of the extension array.
+-}
+
+
 {-| -}
 type Seed
     = Seed { extension : Array Int, base : Internal.Pcg.Seed }
@@ -58,7 +65,16 @@ type alias Generator a =
 
 
 {-| Seed this generator with some random data.
-Best get this via a flag from `window.crypto.getRandomValues(..)`
+Best get this via a flag from `window.crypto.getRandomValues(..)`.
+
+The more random integers you provide, the longer the period gets.
+
+This is based on section 7.1 from [the PCG paper](http://www.pcg-random.org/paper.html)
+Since the PCG generator used as a base is the RXS-M-XS variant (section 6.3.4),
+The extended generator will have a period of `2^((List.length extendedSeed + 1)*32)`
+
+If your `extendedSeed` list has a length that is a power of two, the performance will be a bit better.
+
 -}
 initialSeed : Int -> List Int -> Seed
 initialSeed baseSeed extendedSeed =
@@ -87,13 +103,13 @@ float =
 next : Seed -> Seed
 next (Seed s) =
     let
-        newBase =
+        ((Internal.Pcg.Seed baseState _) as newBase) =
             Internal.Pcg.next s.base
     in
         Seed
             { base = newBase
             , extension =
-                if newBase == Internal.Pcg.Seed 0 0 then
+                if baseState == 0 then
                     -- only advance the extension if we cross the all zero state for the base generator
                     incrementExtension s.extension
                 else
