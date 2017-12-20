@@ -643,8 +643,8 @@ Do not inspect or change the resulting JSON value.
 
 -}
 toJson : Seed -> Json.Encode.Value
-toJson (Seed state incr) =
-    Json.Encode.list [ Json.Encode.int state, Json.Encode.int incr ]
+toJson =
+    Internal.Pcg.toJson
 
 
 {-| A JSON decoder that can recover seeds encoded using `toJson`. Alternatively,
@@ -655,9 +655,4 @@ pass an integer to create a seed using `initialSeed`.
 -}
 fromJson : Json.Decode.Decoder Seed
 fromJson =
-    Json.Decode.oneOf
-        [ Json.Decode.map2 Seed
-            (Json.Decode.index 0 Json.Decode.int)
-            (Json.Decode.index 1 Json.Decode.int)
-        , Json.Decode.map initialSeed Json.Decode.int
-        ]
+    Internal.Pcg.fromJson

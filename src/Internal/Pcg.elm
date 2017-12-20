@@ -2,6 +2,8 @@ module Internal.Pcg exposing (..)
 
 import Random.General as RNG
 import Bitwise
+import Json.Decode
+import Json.Encode
 
 
 type Seed
@@ -39,6 +41,21 @@ next : Seed -> Seed
 next (Seed state0 incr) =
     -- The magic constant is from Numerical Recipes and is inlined for perf.
     Seed ((state0 * 1664525) + incr |> Bitwise.shiftRightZfBy 0) incr
+
+
+toJson : Seed -> Json.Encode.Value
+toJson (Seed state incr) =
+    Json.Encode.list [ Json.Encode.int state, Json.Encode.int incr ]
+
+
+fromJson : Json.Decode.Decoder Seed
+fromJson =
+    Json.Decode.oneOf
+        [ Json.Decode.map2 Seed
+            (Json.Decode.index 0 Json.Decode.int)
+            (Json.Decode.index 1 Json.Decode.int)
+        , Json.Decode.map initialSeed Json.Decode.int
+        ]
 
 
 
