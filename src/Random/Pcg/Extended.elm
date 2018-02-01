@@ -1,4 +1,4 @@
-module Random.Pcg.Extended exposing (Generator, Seed, bool, int, float, oneIn, sample, pair, list, maybe, choice, choices, frequency, map, map2, map3, map4, map5, andMap, filter, constant, andThen, minInt, maxInt, step, initialSeed, toJson, fromJson, config)
+module Random.Pcg.Extended exposing (Generator, Seed, bool, int, float, oneIn, sample, pair, list, maybe, choice, choices, frequency, map, map2, map3, map4, map5, andMap, filter, constant, independentSeed, andThen, minInt, maxInt, step, initialSeed, toJson, fromJson, config)
 
 {-| This is an extended version of the Pcg random generator.
 It offers k dimensional equidistributed random numbers.
@@ -30,7 +30,7 @@ It has a larger space cost than the normal Pcg version, but it also offers a muc
 
 # Working With Seeds
 
-@docs Seed, toJson, fromJson
+@docs Seed, independentSeed, toJson, fromJson
 
 
 # Constants
@@ -86,8 +86,8 @@ initialSeed baseSeed extendedSeed =
 TODO: how sound is this function?
 
 -}
-independantSeed : Generator Seed
-independantSeed =
+independentSeed : Generator Seed
+independentSeed =
     RNG.generator <|
         \seed0 ->
             let
