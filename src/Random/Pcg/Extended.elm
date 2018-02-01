@@ -81,6 +81,34 @@ initialSeed baseSeed extendedSeed =
     Seed { extension = Array.fromList extendedSeed, base = Internal.Pcg.initialSeed baseSeed }
 
 
+{-| This gives you an independant seed.
+
+TODO: how sound is this function?
+
+-}
+independantSeed : Generator Seed
+independantSeed =
+    RNG.generator <|
+        \seed0 ->
+            let
+                gen =
+                    int 0 0xFFFFFFFF
+
+                ( ( state, b, c ), Seed seed1 ) =
+                    step (map3 (,,) gen gen gen) seed0
+
+                {--
+                Although it probably doesn't hold water theoretically, xor two
+                random numbers to make an increment less likely to be
+                pathological. Then make sure that it's odd, which is required.
+                Finally step it once before use.
+                --}
+                incr =
+                    (Bitwise.xor b c) |> Bitwise.or 1 |> Bitwise.shiftRightZfBy 0
+            in
+                ( Seed seed1, Seed { extension = seed1.extension, base = Internal.Pcg.next <| Internal.Pcg.Seed state incr } )
+
+
 {-| The config for the PCG-extended variant
 -}
 config : Config Seed
