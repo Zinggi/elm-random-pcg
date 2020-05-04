@@ -1,3 +1,7 @@
+## Elm 0.19
+
+Use [the NoRedInk fork](https://github.com/NoRedInk/elm-random-pcg-extended)
+
 # Note
 **This is a fork, you probably want [mgold/elm-random-pcg](http://package.elm-lang.org/packages/mgold/elm-random-pcg/latest)**
 
